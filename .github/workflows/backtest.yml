@@ -65,10 +65,21 @@ jobs:
           # 构建 params JSON 数组（无 param_key/values → ['{}']，有则构建参数对象列表）
           PARAMS_JSON=$(python3 -c "import json,os; k=os.environ.get('PARAM_KEY','').strip(); vs=os.environ.get('PARAM_VALUES','').strip(); parse=lambda v: float(v) if v.replace('.','',1).replace('-','',1).isdigit() else v; r=[json.dumps({k:parse(v.strip())}) for v in (vs.split(',') if k and vs else []) if v.strip()]; print(json.dumps(r or ['{}']))")
 
+          # 是否参数扫描模式：有 param_key 时按单策略×多参数矩阵展开；
+          # 否则将全部策略合并为一个 Job，避免重复加载相同数据。
+          PARAM_KEY="${{ github.event.inputs.param_key }}"
+          if [ -n "$PARAM_KEY" ]; then
+            # 参数扫描：strategy 矩阵展开（单条策略 × N 参数）
+            STRATEGY_MATRIX="$STRATEGIES_JSON"
+          else
+            # 全策略跑：将所有策略合并为一个逗号分隔字符串，只起一个 Job
+            STRATEGY_MATRIX=$(python3 -c "import json,os; arr=json.loads(os.environ['STRATEGIES_JSON']); print(json.dumps([','.join(arr)]))" STRATEGIES_JSON="$STRATEGIES_JSON")
+          fi
+
           echo "start=${START}"                >> "$GITHUB_OUTPUT"
           echo "end=${END}"                    >> "$GITHUB_OUTPUT"
           echo "persist=${PERSIST}"            >> "$GITHUB_OUTPUT"
-          echo "strategies=${STRATEGIES_JSON}" >> "$GITHUB_OUTPUT"
+          echo "strategies=${STRATEGY_MATRIX}" >> "$GITHUB_OUTPUT"
           echo "params=${PARAMS_JSON}"         >> "$GITHUB_OUTPUT"
 
   # -----------------------------------------------------------------------

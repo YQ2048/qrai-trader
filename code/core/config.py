@@ -28,7 +28,7 @@ def _db_config(prefix: str) -> dict:
         return {'url': url}
     return {
         'host': os.getenv(f'{prefix}_HOST'),
-        'port': int(os.getenv(f'{prefix}_PORT', 4000)),
+        'port': int(os.getenv(f'{prefix}_PORT') or 4000),
         'user': os.getenv(f'{prefix}_USER'),
         'password': os.getenv(f'{prefix}_PASSWORD'),
         'database': os.getenv(f'{prefix}_DATABASE', 'test'),
@@ -85,7 +85,7 @@ QUANT_THRESHOLDS = {
 
     # 每日复盘推送数量（DB落库 + Markdown报告 + Notion推送共用此值）
     # 可通过环境变量 DAILY_TOP_N 覆盖，未设置时默认 50
-    'daily_top_n': int(os.getenv('DAILY_TOP_N', 50)),
+    'daily_top_n': int(os.getenv('DAILY_TOP_N') or 50),
 
     # 动量 / RPS
     'rps_20_min': 90,               # 20日RPS > 90
@@ -120,9 +120,9 @@ STRATEGY_WEIGHTS = {
 NIGHTLY_INTRADAY_WEIGHT = 0.08
 
 # 全局熔断器：若跌停家数过高或上涨家数占比过低，则评分整体折减
-GLOBAL_MELTDOWN_DOWN_LIMIT_COUNT = int(os.getenv('GLOBAL_MELTDOWN_DOWN_LIMIT_COUNT', 30))
-GLOBAL_MELTDOWN_UP_RATIO = float(os.getenv('GLOBAL_MELTDOWN_UP_RATIO', 0.20))
-GLOBAL_MELTDOWN_SCORE_MULTIPLIER = float(os.getenv('GLOBAL_MELTDOWN_SCORE_MULTIPLIER', 0.2))
+GLOBAL_MELTDOWN_DOWN_LIMIT_COUNT = int(os.getenv('GLOBAL_MELTDOWN_DOWN_LIMIT_COUNT') or 30)
+GLOBAL_MELTDOWN_UP_RATIO = float(os.getenv('GLOBAL_MELTDOWN_UP_RATIO') or 0.20)
+GLOBAL_MELTDOWN_SCORE_MULTIPLIER = float(os.getenv('GLOBAL_MELTDOWN_SCORE_MULTIPLIER') or 0.2)
 
 # 总分入选阈值
 STRATEGY_SCORE_THRESHOLD = 80
@@ -140,7 +140,7 @@ POLICY_THEME_KEYWORDS = [
 POLICY_CATALYST_DATES = [
     d.strip() for d in os.getenv('POLICY_CATALYST_DATES', '').split(',') if d.strip()
 ]
-POLICY_CATALYST_WINDOW_DAYS = int(os.getenv('POLICY_CATALYST_WINDOW_DAYS', 5))
+POLICY_CATALYST_WINDOW_DAYS = int(os.getenv('POLICY_CATALYST_WINDOW_DAYS') or 5)
 
 CALENDAR_BIAS_MAP = {
     1: 'AGGRESSIVE',
