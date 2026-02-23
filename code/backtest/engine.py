@@ -460,57 +460,80 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
         # 提前转换 trade_date 为字符串，避免循环内每次重复转换
         north_df["trade_date"] = north_df["trade_date"].dt.strftime("%Y%m%d")
 
+    # 5. 循环前按 trade_date 预分组为字典，避免循环内对百万行 DataFrame 重复全表布尔扫描
+    _empty = pd.DataFrame()
+    factor_by_date      = {td: grp for td, grp in factor_df.groupby(factor_df["trade_date"].dt.strftime("%Y%m%d"))}
+    daily_basic_by_date = {td: grp for td, grp in daily_basic_bulk.groupby("trade_date")}
+    moneyflow_by_date   = {td: grp for td, grp in moneyflow_bulk.groupby("trade_date")}
+    top_inst_by_date    = {td: grp for td, grp in top_inst_bulk.groupby("trade_date")}
+    chip_by_date        = ({td: grp for td, grp in chip_cv_df.groupby("trade_date")}
+                           if not chip_cv_df.empty else {})
+    ind_slope_by_date   = ({td: grp[["ts_code", "industry_rps_slope_3d"]]
+                            for td, grp in ind_slope_all.groupby("trade_date")}
+                           if not ind_slope_all.empty else {})
+    north_by_date       = ({td: grp for td, grp in north_df.groupby("trade_date")}
+                           if not north_df.empty else {})
+
+    # 行业→policy_theme_hit 映射表：industries 不随日期变化，只算一次
+    _all_industries = stock_basic_df["industry"].dropna().unique()
+    _industry_theme_map = {ind: _is_policy_theme_industry(ind) for ind in _all_industries}
+    _industry_theme_map[""] = _is_policy_theme_industry("")
+
+    _disclosure_months = {1, 4, 7, 10}
+
     # 5. 逐日切片组装完整因子快照
     all_snapshots = []
     for idx, td_str in enumerate(trade_dates_list):
         if idx % 20 == 0:
             logger.info("[bulk_load] 切片进度 %d/%d 日=%s", idx, len(trade_dates_list), td_str)
-        td = pd.to_datetime(td_str, format="%Y%m%d")
-        latest_df = factor_df[factor_df["trade_date"] == td].copy()
+
+        latest_df = factor_by_date.get(td_str, _empty)
         if latest_df.empty:
             continue
-
+        latest_df = latest_df.copy()
         latest_df["trade_date"] = latest_df["trade_date"].dt.strftime("%Y%m%d")
 
-        # daily_basic / moneyflow / top_inst：从预加载的批量数据中过滤当日，不再发起 DB 查询
-        daily_basic_df = daily_basic_bulk[daily_basic_bulk["trade_date"] == td_str]
-        moneyflow_df   = moneyflow_bulk[moneyflow_bulk["trade_date"] == td_str]
-        top_inst_df    = top_inst_bulk[top_inst_bulk["trade_date"] == td_str]
+        # daily_basic / moneyflow / top_inst：O(1) dict lookup，不再全表布尔扫描
+        daily_basic_df = daily_basic_by_date.get(td_str, _empty)
+        moneyflow_df   = moneyflow_by_date.get(td_str, _empty)
+        top_inst_df    = top_inst_by_date.get(td_str, _empty)
 
         out = latest_df.merge(daily_basic_df, on=["ts_code", "trade_date"], how="left")
 
-        # 筹码（trade_date 已在循环外预转换为字符串）
-        if not chip_cv_df.empty:
-            chip_day = chip_cv_df[chip_cv_df["trade_date"] == td_str]
+        # 筹码
+        chip_day = chip_by_date.get(td_str)
+        if chip_day is not None:
             out = out.merge(chip_day, on=["ts_code", "trade_date"], how="left")
 
         out = out.merge(moneyflow_df, on=["ts_code", "trade_date"], how="left")
         out = out.merge(top_inst_df, on=["ts_code", "trade_date"], how="left")
         out = out.merge(stock_basic_df, on="ts_code", how="left")
 
-        # 行业RPS slope（从循环外预计算的全量查找表中取当日切片）
-        if not ind_slope_all.empty:
-            slope_day = ind_slope_all[ind_slope_all["trade_date"] == td_str][["ts_code", "industry_rps_slope_3d"]]
+        # 行业RPS slope
+        slope_day = ind_slope_by_date.get(td_str)
+        if slope_day is not None:
             out = out.merge(slope_day, on="ts_code", how="left")
 
-        # 北向（trade_date 已在循环外预转换为字符串）
-        if not north_df.empty:
-            north_day = north_df[north_df["trade_date"] == td_str]
+        # 北向
+        north_day = north_by_date.get(td_str)
+        if north_day is not None:
             out = out.merge(north_day, on="trade_date", how="left")
 
         # 业绩预告
         out = out.merge(forecast_df, on="ts_code", how="left")
 
-        # 宏观因子
-        out["policy_theme_hit"] = out["industry"].fillna("").apply(_is_policy_theme_industry)
+        # 宏观因子：policy_theme_hit 用预计算映射表（避免逐行 apply）
+        out["policy_theme_hit"] = out["industry"].fillna("").map(_industry_theme_map).fillna(False)
         out["policy_catalyst_active"] = _is_policy_catalyst_active(td_str)
         out["calendar_bias"] = _infer_calendar_bias(td_str)
 
-        _disclosure_months = {1, 4, 7, 10}
         if "ann_date" in out.columns:
-            out["earnings_disclosure_month"] = out["ann_date"].apply(
-                lambda d: int(str(d)[4:6]) in _disclosure_months if pd.notna(d) and len(str(d)) >= 6 else False
-            ).astype(int)
+            out["earnings_disclosure_month"] = (
+                out["ann_date"].astype(str).str[4:6]
+                .map(lambda m: m.isdigit() and int(m) in _disclosure_months)
+                .where(out["ann_date"].notna(), False)
+                .astype(int)
+            )
         else:
             out["earnings_disclosure_month"] = int(datetime.strptime(td_str, "%Y%m%d").month in _disclosure_months)
 
