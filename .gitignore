@@ -1,0 +1,37 @@
+# Environment & Secrets
+.env
+配置&数据&文档/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Output
+tmp/
+report/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 本地凭据备份（含明文密码，严禁入库）
+env.md
+github分离部署*.md
+
+# 私有策略子模块（本地开发占位目录，正式部署由 git submodule 替代）
+# git submodule add 后此条可删除
+code/_strategies/
+github-secrets*.md

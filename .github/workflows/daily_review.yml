@@ -1,0 +1,111 @@
+name: daily_review
+
+on:
+  schedule:
+    # 每日 UTC 12:00 = 北京时间 20:00
+    - cron: "0 12 * * 1-5"
+
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "目标交易日 (YYYYMMDD)，留空自动检测"
+        required: false
+        default: ""
+      push_notion:
+        description: "是否推送 Notion (true/false)"
+        required: false
+        default: "true"
+      skip_sync:
+        description: "跳过数据同步 (true/false)"
+        required: false
+        default: "false"
+
+jobs:
+  daily-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      TUSHARE_TOKENS: ${{ secrets.TUSHARE_TOKENS }}
+
+      DB1_URL: ${{ secrets.DB1_URL }}
+      DB2_URL: ${{ secrets.DB2_URL }}
+      DB3_URL: ${{ secrets.DB3_URL }}
+
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+
+      # API 频率控制
+      TOKEN_COOLDOWN_SECONDS: ${{ secrets.TOKEN_COOLDOWN_SECONDS }}
+
+      # 筹码数据并发
+      CYQ_PERF_WORKERS: ${{ secrets.CYQ_PERF_WORKERS }}
+      CYQ_PERF_BATCH: ${{ secrets.CYQ_PERF_BATCH }}
+
+      # 全局熔断器
+      GLOBAL_MELTDOWN_DOWN_LIMIT_COUNT: ${{ secrets.GLOBAL_MELTDOWN_DOWN_LIMIT_COUNT }}
+      GLOBAL_MELTDOWN_UP_RATIO: ${{ secrets.GLOBAL_MELTDOWN_UP_RATIO }}
+      GLOBAL_MELTDOWN_SCORE_MULTIPLIER: ${{ secrets.GLOBAL_MELTDOWN_SCORE_MULTIPLIER }}
+
+      # 政策催化窗口期（S11）
+      POLICY_CATALYST_DATES: ${{ secrets.POLICY_CATALYST_DATES }}
+      POLICY_CATALYST_WINDOW_DAYS: ${{ secrets.POLICY_CATALYST_WINDOW_DAYS }}
+
+      # 每日推送数量
+      DAILY_TOP_N: ${{ secrets.DAILY_TOP_N }}
+
+    steps:
+      # 1. 配置 SSH Agent，注入私钥以访问私有策略仓库
+      - name: Setup SSH for private strategies
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+
+      # 2. Checkout 公开仓库
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 3. Clone 私有策略仓库到 code/_strategies（软链接目标）
+      - name: Clone private strategies
+        run: |
+          git clone git@github.com:${{ secrets.STRATEGIES_REPO }} code/_strategies
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run daily review pipeline
+        run: |
+          ARGS=""
+
+          DATE_INPUT="${{ github.event.inputs.date }}"
+          if [ -n "$DATE_INPUT" ]; then
+            ARGS="$ARGS --date $DATE_INPUT"
+          fi
+
+          SKIP_SYNC="${{ github.event.inputs.skip_sync }}"
+          if [ "$SKIP_SYNC" = "true" ]; then
+            ARGS="$ARGS --skip-sync"
+          fi
+
+          PUSH_NOTION="${{ github.event.inputs.push_notion }}"
+          if [ "$PUSH_NOTION" != "false" ]; then
+            ARGS="$ARGS --push-notion"
+          fi
+
+          python -m code.jobs.run_daily $ARGS
+
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-${{ github.run_id }}
+          path: |
+            report/candidates_*.md
+            report/factor_snapshot_*.csv
+          if-no-files-found: warn

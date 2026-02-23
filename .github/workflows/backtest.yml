@@ -1,0 +1,182 @@
+name: backtest
+
+on:
+  schedule:
+    # 每周六 UTC 12:30 = 北京时间 20:30，自动跑全策略默认参数回测
+    - cron: "30 12 * * 6"
+
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "回测开始日期 (YYYYMMDD)"
+        required: true
+        default: "20240101"
+      end:
+        description: "回测结束日期 (YYYYMMDD)"
+        required: true
+        default: "20251231"
+      strategy:
+        description: "策略列表，逗号分隔。留空 = 全部13条策略"
+        required: false
+        default: ""
+      param_key:
+        description: "超参扫描：参数名 (如 g_point_vol_ratio)。留空 = 不扫描"
+        required: false
+        default: ""
+      param_values:
+        description: "超参扫描：扫描值，逗号分隔 (如 2.0,2.5,3.0,3.5,4.0)。留空 = 使用默认值"
+        required: false
+        default: ""
+      persist:
+        description: "是否写入 backtest_signals 表 (true/false)"
+        required: true
+        default: "false"
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Job 1: 解析输入，构建 strategy 与 params 矩阵
+  # -----------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      strategies: ${{ steps.build.outputs.strategies }}
+      params:     ${{ steps.build.outputs.params }}
+      start:      ${{ steps.build.outputs.start }}
+      end:        ${{ steps.build.outputs.end }}
+      persist:    ${{ steps.build.outputs.persist }}
+    steps:
+      - id: build
+        shell: bash
+        run: |
+          START_INPUT="${{ github.event.inputs.start }}"
+          END_INPUT="${{ github.event.inputs.end }}"
+          STRATEGY_INPUT="${{ github.event.inputs.strategy }}"
+          PERSIST_INPUT="${{ github.event.inputs.persist }}"
+
+          START=${START_INPUT:-20240101}
+          END=${END_INPUT:-20251231}
+          PERSIST=${PERSIST_INPUT:-false}
+
+          # 构建 strategies JSON 数组（留空则跑全部13条）
+          STRATEGIES_JSON=$(python3 - <<'PY'
+import json, os
+raw = os.environ.get('STRATEGY', '').strip()
+arr = [s.strip() for s in raw.split(',') if s.strip()]
+if not arr:
+    arr = ["S11","S12","S13","S21","S22","S23","S24","S25","S26","S31","S32","S33","S34"]
+print(json.dumps(arr, ensure_ascii=False))
+PY
+          )
+
+          # 构建 params JSON 数组
+          # 无 param_key/values → ['{}']（单次默认参数运行）
+          # 有 param_key + values → ['{"key": val1}', '{"key": val2}', ...]
+          PARAMS_JSON=$(python3 - <<'PY'
+import json, os
+key  = os.environ.get('PARAM_KEY', '').strip()
+vals = os.environ.get('PARAM_VALUES', '').strip()
+if key and vals:
+    result = []
+    for v in vals.split(','):
+        v = v.strip()
+        if v:
+            try:
+                result.append(json.dumps({key: float(v)}))
+            except ValueError:
+                result.append(json.dumps({key: v}))
+    if not result:
+        result = ['{}']
+else:
+    result = ['{}']
+print(json.dumps(result))
+PY
+          )
+
+          echo "start=${START}"             >> "$GITHUB_OUTPUT"
+          echo "end=${END}"                 >> "$GITHUB_OUTPUT"
+          echo "persist=${PERSIST}"         >> "$GITHUB_OUTPUT"
+          echo "strategies=${STRATEGIES_JSON}" >> "$GITHUB_OUTPUT"
+          echo "params=${PARAMS_JSON}"      >> "$GITHUB_OUTPUT"
+        env:
+          STRATEGY:     ${{ github.event.inputs.strategy }}
+          PARAM_KEY:    ${{ github.event.inputs.param_key }}
+          PARAM_VALUES: ${{ github.event.inputs.param_values }}
+
+  # -----------------------------------------------------------------------
+  # Job 2: 回测矩阵（strategy × params 二维并发）
+  # -----------------------------------------------------------------------
+  run-backtest:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      max-parallel: 20          # 明确占满 GitHub Pro 20 并发上限
+      matrix:
+        strategy: ${{ fromJson(needs.prepare.outputs.strategies) }}
+        params:   ${{ fromJson(needs.prepare.outputs.params) }}
+
+    env:
+      TUSHARE_TOKENS: ${{ secrets.TUSHARE_TOKENS }}
+
+      DB1_URL: ${{ secrets.DB1_URL }}
+      DB2_URL: ${{ secrets.DB2_URL }}
+      DB3_URL: ${{ secrets.DB3_URL }}
+
+      # API 频率控制
+      TOKEN_COOLDOWN_SECONDS: ${{ secrets.TOKEN_COOLDOWN_SECONDS }}
+
+      # 筹码数据并发
+      CYQ_PERF_WORKERS: ${{ secrets.CYQ_PERF_WORKERS }}
+      CYQ_PERF_BATCH: ${{ secrets.CYQ_PERF_BATCH }}
+
+    steps:
+      # 1. 配置 SSH Agent，注入私钥以访问私有策略仓库
+      - name: Setup SSH for private strategies
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+
+      # 2. Checkout 公开仓库
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 3. Clone 私有策略仓库到 code/_strategies（软链接目标）
+      - name: Clone private strategies
+        run: |
+          git clone git@github.com:${{ secrets.STRATEGIES_REPO }} code/_strategies
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run backtest
+        run: |
+          NO_PERSIST=""
+          if [ "${{ needs.prepare.outputs.persist }}" = "false" ]; then
+            NO_PERSIST="--no-persist"
+          fi
+
+          python -m code.jobs.run_backtest \
+            --start    "${{ needs.prepare.outputs.start }}" \
+            --end      "${{ needs.prepare.outputs.end }}" \
+            --strategy "${{ matrix.strategy }}" \
+            --params   '${{ matrix.params }}' \
+            ${NO_PERSIST}
+
+      - name: Upload backtest artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-${{ github.run_id }}-${{ matrix.strategy }}-${{ strategy.job-index }}
+          path: |
+            report/backtest_*.csv
+            report/backtest_summary_*.csv
+            report/backtest_plot_*.png
+          if-no-files-found: warn
