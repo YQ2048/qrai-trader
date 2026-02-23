@@ -413,9 +413,15 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
     # ── 批量加载每日辅助数据（原来在循环内逐日查询，现在统一一次加载）──────────────
     td_start = trade_dates_list[0] if trade_dates_list else start_date
     td_end   = trade_dates_list[-1] if trade_dates_list else end_date
+    logger.info("[bulk_load] 开始加载 daily_basic (%s ~ %s)...", td_start, td_end)
     daily_basic_bulk = _load_daily_basic_bulk(td_start, td_end)
+    logger.info("[bulk_load] daily_basic 加载完成 rows=%d", len(daily_basic_bulk))
+    logger.info("[bulk_load] 开始加载 moneyflow...")
     moneyflow_bulk   = _load_moneyflow_bulk(td_start, td_end)
+    logger.info("[bulk_load] moneyflow 加载完成 rows=%d", len(moneyflow_bulk))
+    logger.info("[bulk_load] 开始加载 top_inst...")
     top_inst_bulk    = _load_top_inst_agg_bulk(td_start, td_end)
+    logger.info("[bulk_load] top_inst 加载完成 rows=%d", len(top_inst_bulk))
     # 归一化 trade_date 为字符串（TiDB 可能返回 datetime/date 类型），确保与 td_str 匹配
     for _df in (daily_basic_bulk, moneyflow_bulk, top_inst_bulk):
         if not _df.empty and not pd.api.types.is_string_dtype(_df["trade_date"]):
@@ -543,10 +549,10 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
         out["calendar_bias"] = _infer_calendar_bias(td_str)
 
         if "ann_date" in out.columns:
+            # fillna("") 确保无 NaN/float 进入 str 操作，isin 避免 lambda 触碰浮点值
             out["earnings_disclosure_month"] = (
-                out["ann_date"].astype(str).str[4:6]
-                .map(lambda m: m.isdigit() and int(m) in _disclosure_months)
-                .where(out["ann_date"].notna(), False)
+                out["ann_date"].fillna("").astype(str).str[4:6]
+                .isin({"01", "04", "07", "10"})
                 .astype(int)
             )
         else:
