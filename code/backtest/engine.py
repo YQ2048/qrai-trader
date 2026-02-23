@@ -178,7 +178,18 @@ def build_signals_from_factor_history(
     target_ids = set(strategy_ids or DEFAULT_BACKTEST_STRATEGIES)
     rows = []
 
+    # ── 诊断：检查第一个快照的关键列空值情况 ──────────────────────────────────
+    _diag_done = False
+
     for trade_date, snap in factor_history_df.groupby("trade_date"):
+        if not _diag_done:
+            _key_cols = ["circ_mv", "amount", "amount_ma20_prev", "turnover_rate",
+                         "pe_ttm", "rps_20", "close_adj", "industry"]
+            _null_pct = {c: f"{snap[c].isna().mean()*100:.1f}%" if c in snap.columns else "MISSING"
+                        for c in _key_cols}
+            logger.info("[build_signals] 诊断 trade_date=%s rows=%d 关键列空值率=%s",
+                        trade_date, len(snap), _null_pct)
+            _diag_done = True
         candidates = detect_daily_candidates(snap)
         for candidate in candidates:
             for signal in candidate.signals:
@@ -405,6 +416,10 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
     daily_basic_bulk = _load_daily_basic_bulk(td_start, td_end)
     moneyflow_bulk   = _load_moneyflow_bulk(td_start, td_end)
     top_inst_bulk    = _load_top_inst_agg_bulk(td_start, td_end)
+    # 归一化 trade_date 为字符串（TiDB 可能返回 datetime/date 类型），确保与 td_str 匹配
+    for _df in (daily_basic_bulk, moneyflow_bulk, top_inst_bulk):
+        if not _df.empty and not pd.api.types.is_string_dtype(_df["trade_date"]):
+            _df["trade_date"] = pd.to_datetime(_df["trade_date"]).dt.strftime("%Y%m%d")
     logger.info("[bulk_load] 批量辅助数据加载完成 daily_basic=%d moneyflow=%d top_inst=%d",
                 len(daily_basic_bulk), len(moneyflow_bulk), len(top_inst_bulk))
 
