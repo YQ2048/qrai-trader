@@ -22,11 +22,19 @@ def run_daily_pipeline(
     notion_title_prefix: str = "QRAI 日级复盘",
     notion_existing_policy: str = "skip",
 ):
+    logger.info("[daily] ── 开始日级复盘 trade_date=%s lookback_days=%d ──", trade_date, lookback_days)
+
+    logger.info("[daily] Step 1/6  加载因子快照...")
     factor_df = load_factor_snapshot(trade_date=trade_date, lookback_days=lookback_days)
     if factor_df.empty:
         raise RuntimeError(f"未找到 {trade_date} 的因子输入数据")
+    logger.info("[daily] Step 1/6  因子快照完成 rows=%d", len(factor_df))
 
+    logger.info("[daily] Step 2/6  策略筛选...")
     candidates = detect_daily_candidates(factor_df)
+    logger.info("[daily] Step 2/6  筛选完成 candidates=%d", len(candidates))
+
+    logger.info("[daily] Step 3/6  评分排序...")
     market_risk = get_market_risk_state(trade_date)
     ranked = rank_candidates(
         candidates,
@@ -34,9 +42,17 @@ def run_daily_pipeline(
         score_multiplier=float(market_risk.get("score_multiplier", 1.0)),
         market_risk=market_risk,
     )
-    persisted = persist_strategy_signals(ranked, trade_date=trade_date, top_n=QUANT_THRESHOLDS["daily_top_n"])
-    market_overview = build_market_context(trade_date)
+    logger.info("[daily] Step 3/6  排序完成 ranked=%d", len(ranked))
 
+    logger.info("[daily] Step 4/6  落库 strategy_signals...")
+    persisted = persist_strategy_signals(ranked, trade_date=trade_date, top_n=QUANT_THRESHOLDS["daily_top_n"])
+    logger.info("[daily] Step 4/6  落库完成 rows=%d", persisted)
+
+    logger.info("[daily] Step 5/6  生成大盘概况...")
+    market_overview = build_market_context(trade_date)
+    logger.info("[daily] Step 5/6  大盘概况完成")
+
+    logger.info("[daily] Step 6/6  输出报告...")
     project_root = Path(__file__).resolve().parents[2]
     output_dir = project_root / "report"
     paths = write_daily_outputs(

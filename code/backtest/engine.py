@@ -7,10 +7,8 @@ import pandas as pd
 from sqlalchemy import text
 
 from code.analytics.factors import load_factor_snapshot, _load_price_panel, _compute_price_factors, \
-    _load_daily_basic, _load_daily_basic_bulk, _load_chip_panel, \
-    _load_moneyflow, _load_moneyflow_bulk, _load_stock_basic, \
-    _load_top_inst_agg, _load_top_inst_agg_bulk, \
-    _load_moneyflow_hsgt_panel, _load_forecast_latest, \
+    _load_daily_basic, _load_chip_panel, _load_moneyflow, _load_stock_basic, \
+    _load_top_inst_agg, _load_moneyflow_hsgt_panel, _load_forecast_latest, \
     _is_policy_theme_industry, _is_policy_catalyst_active, _infer_calendar_bias
 from code.analytics.screener import detect_daily_candidates
 from code.core.db_manager import get_engine
@@ -88,20 +86,73 @@ def ensure_backtest_signals_table(engine) -> None:
         conn.commit()
 
 
-def list_trade_dates(start_date: str, end_date: str) -> List[str]:
+def _load_daily_basic_bulk(start_date: str, end_date: str) -> pd.DataFrame:
+    """批量加载指定日期区间内所有日期的 daily_basic（SHOW COLUMNS 仅执行一次）。"""
     engine = get_engine("db1")
+    with engine.connect() as conn:
+        cols = conn.execute(text("SHOW COLUMNS FROM daily_basic")).fetchall()
+        col_names = {str(r[0]).lower() for r in cols}
+
+    optional_cols = []
+    if "ps_ttm" in col_names:
+        optional_cols.append("ps_ttm")
+    if "peg" in col_names:
+        optional_cols.append("peg")
+
+    select_cols = ["ts_code", "trade_date", "turnover_rate", "pe_ttm", "circ_mv", *optional_cols]
     sql = text(
-        """
-        SELECT cal_date
-        FROM trade_cal
-        WHERE is_open = 1
-          AND cal_date BETWEEN :start_date AND :end_date
-        ORDER BY cal_date
+        f"""
+        SELECT {', '.join(select_cols)}
+        FROM daily_basic
+        WHERE trade_date BETWEEN :start_date AND :end_date
         """
     )
     with engine.connect() as conn:
-        rows = conn.execute(sql, {"start_date": start_date, "end_date": end_date}).fetchall()
-    return [r[0] for r in rows]
+        df = pd.read_sql(sql, conn, params={"start_date": start_date, "end_date": end_date})
+
+    if "ps_ttm" not in df.columns:
+        df["ps_ttm"] = pd.NA
+    if "peg" not in df.columns:
+        df["peg"] = pd.NA
+    return df
+
+
+def _load_moneyflow_bulk(start_date: str, end_date: str) -> pd.DataFrame:
+    """批量加载指定日期区间内所有日期的资金流向数据。"""
+    engine2 = get_engine("db2")
+    sql = text(
+        """
+        SELECT ts_code, trade_date, net_mf_amount
+        FROM moneyflow
+        WHERE trade_date BETWEEN :start_date AND :end_date
+        """
+    )
+    with engine2.connect() as conn:
+        df = pd.read_sql(sql, conn, params={"start_date": start_date, "end_date": end_date})
+    return df
+
+
+def _load_top_inst_agg_bulk(start_date: str, end_date: str) -> pd.DataFrame:
+    """批量加载指定日期区间内所有日期的龙虎榜机构席位聚合数据。"""
+    engine3 = get_engine("db3")
+    sql = text(
+        """
+        SELECT
+            ts_code,
+            trade_date,
+            COUNT(*) AS inst_count,
+            SUM(COALESCE(net_buy, 0)) AS inst_net_buy
+        FROM top_inst
+        WHERE trade_date BETWEEN :start_date AND :end_date
+        GROUP BY ts_code, trade_date
+        """
+    )
+    with engine3.connect() as conn:
+        df = pd.read_sql(sql, conn, params={"start_date": start_date, "end_date": end_date})
+    return df
+
+
+def list_trade_dates(start_date: str, end_date: str) -> List[str]:
 
 
 def build_signals_from_factor_history(
