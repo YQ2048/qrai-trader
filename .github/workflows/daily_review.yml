@@ -68,6 +68,7 @@ jobs:
       # 3. Clone 私有策略仓库到 code/_strategies（软链接目标）
       - name: Clone private strategies
         run: |
+          rm -rf code/_strategies
           git clone git@github.com:${{ secrets.STRATEGIES_REPO }} code/_strategies
 
       - name: Set up Python

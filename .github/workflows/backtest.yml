@@ -114,6 +114,7 @@ jobs:
       # 3. Clone 私有策略仓库到 code/_strategies（软链接目标）
       - name: Clone private strategies
         run: |
+          rm -rf code/_strategies
           git clone git@github.com:${{ secrets.STRATEGIES_REPO }} code/_strategies
 
       - name: Set up Python
@@ -140,12 +141,21 @@ jobs:
             --params   '${{ matrix.params }}' \
             ${NO_PERSIST}
 
+      - name: Encrypt and upload backtest artifacts
+        env:
+          ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASSWORD }}
+        run: |
+          shopt -s nullglob
+          FILES=(report/backtest_*.csv report/backtest_summary_*.csv report/backtest_plot_*.png)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No report files found, skipping"
+            exit 0
+          fi
+          zip -r -P "$ARTIFACT_PASSWORD" report/backtest_encrypted.zip "${FILES[@]}"
+
       - name: Upload backtest artifacts
         uses: actions/upload-artifact@v4
         with:
           name: backtest-${{ github.run_id }}-${{ matrix.strategy }}-${{ strategy.job-index }}
-          path: |
-            report/backtest_*.csv
-            report/backtest_summary_*.csv
-            report/backtest_plot_*.png
+          path: report/backtest_encrypted.zip
           if-no-files-found: warn
