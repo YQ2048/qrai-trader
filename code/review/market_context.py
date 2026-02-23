@@ -82,13 +82,13 @@ def build_market_context(trade_date: str) -> str:
     with engine1.connect() as conn:
         row = conn.execute(index_sql, {"trade_date": trade_date}).fetchone()
         if row:
-            pct_chg = row[0]
-            amount = row[1]
+            pct_chg = float(row[0]) if row[0] is not None else None
+            amount = float(row[1]) if row[1] is not None else None
 
     with engine2.connect() as conn:
         row = conn.execute(north_sql, {"trade_date": trade_date}).fetchone()
         if row:
-            north_money = row[0]
+            north_money = float(row[0]) if row[0] is not None else None
 
     pct_text = "未知" if pct_chg is None else f"上证涨跌 {pct_chg:.2f}%"
     amount_text = "未知" if amount is None else f"上证成交额 {amount / 1e8:.1f} 亿"

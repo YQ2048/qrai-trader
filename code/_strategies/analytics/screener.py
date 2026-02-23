@@ -205,11 +205,11 @@ def _score_s34(row: pd.Series) -> float:
     north_sum_3d = row.get("north_sum_3d")
     industry_slope = row.get("industry_rps_slope_3d")
 
-    if north_days is None or np.isnan(north_days) or north_days < 3:
+    if north_days is None or pd.isna(north_days) or north_days < 3:
         return 0.0
-    if north_sum_3d is None or np.isnan(north_sum_3d) or north_sum_3d <= 0:
+    if north_sum_3d is None or pd.isna(north_sum_3d) or north_sum_3d <= 0:
         return 0.0
-    if industry_slope is None or np.isnan(industry_slope) or industry_slope <= 0:
+    if industry_slope is None or pd.isna(industry_slope) or industry_slope <= 0:
         return 0.0
 
     days_score = _piecewise_score(north_days, [(3.0, 8.0), (5.0, 9.0), (8.0, 10.0)])

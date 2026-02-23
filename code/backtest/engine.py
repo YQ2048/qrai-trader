@@ -129,6 +129,7 @@ def build_signals_from_factor_history(
                 )
 
     if not rows:
+        logger.warning("[build_signals] 所有交易日均无候选信号，请检查筛选阈值或数据完整性")
         return pd.DataFrame(columns=["ts_code", "signal_date", "strategy_id", "score_raw", "industry"])
 
     out = pd.DataFrame(rows).drop_duplicates(subset=["ts_code", "signal_date", "strategy_id"])
@@ -284,25 +285,37 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
 
     # 回溯起始日：需要为 start_date 提供 lookback_days 的历史数据
     lookback_start = (datetime.strptime(start_date, "%Y%m%d") - timedelta(days=lookback_days)).strftime("%Y%m%d")
+    logger.info("[bulk_load] 开始加载因子数据 start=%s end=%s lookback_start=%s", start_date, end_date, lookback_start)
 
     # 1. 一次性加载全区间价格面板并计算因子
     price_df = _load_price_panel(start_date=lookback_start, end_date=end_date)
+    logger.info("[bulk_load] 价格面板 rows=%d", len(price_df))
     if price_df.empty:
+        logger.warning("[bulk_load] 价格面板为空，退出")
         return pd.DataFrame()
 
     factor_df = _compute_price_factors(price_df)
+    logger.info("[bulk_load] 价格因子计算完成 rows=%d", len(factor_df))
     if factor_df.empty:
+        logger.warning("[bulk_load] 价格因子为空，退出")
         return pd.DataFrame()
 
     # 2. 批量加载辅助数据（只加载一次）
     daily_basic_dates = factor_df[factor_df["trade_date"] >= pd.to_datetime(start_date, format="%Y%m%d")]
     trade_dates_list = sorted(daily_basic_dates["trade_date"].dt.strftime("%Y%m%d").unique())
+    logger.info("[bulk_load] 回测交易日数=%d (%s ~ %s)", len(trade_dates_list),
+                trade_dates_list[0] if trade_dates_list else "N/A",
+                trade_dates_list[-1] if trade_dates_list else "N/A")
 
     # 4.2 生存偏差处理：加载全量 stock_basic（含已退市），不过滤 list_status
     stock_basic_df = _load_stock_basic()
+    logger.info("[bulk_load] stock_basic rows=%d", len(stock_basic_df))
     chip_panel_df = _load_chip_panel(start_date=lookback_start, end_date=end_date)
+    logger.info("[bulk_load] chip_panel rows=%d", len(chip_panel_df))
     hsgt_panel_df = _load_moneyflow_hsgt_panel(start_date=lookback_start, end_date=end_date)
+    logger.info("[bulk_load] hsgt_panel rows=%d", len(hsgt_panel_df))
     forecast_df = _load_forecast_latest(end_date)
+    logger.info("[bulk_load] forecast rows=%d", len(forecast_df))
 
     # 3. 预处理筹码面板
     chip_cv_df = pd.DataFrame()
@@ -334,7 +347,9 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
 
     # 5. 逐日切片组装完整因子快照
     all_snapshots = []
-    for td_str in trade_dates_list:
+    for idx, td_str in enumerate(trade_dates_list):
+        if idx % 20 == 0:
+            logger.info("[bulk_load] 切片进度 %d/%d 日=%s", idx, len(trade_dates_list), td_str)
         td = pd.to_datetime(td_str, format="%Y%m%d")
         latest_df = factor_df[factor_df["trade_date"] == td].copy()
         if latest_df.empty:
@@ -405,22 +420,32 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
         all_snapshots.append(out)
 
     if not all_snapshots:
+        logger.warning("[bulk_load] 所有交易日快照均为空，无法构建因子历史")
         return pd.DataFrame()
 
-    return pd.concat(all_snapshots, ignore_index=True)
+    result = pd.concat(all_snapshots, ignore_index=True)
+    logger.info("[bulk_load] 因子历史构建完成 rows=%d cols=%d", len(result), len(result.columns))
+    return result
 
 
 def run_min_backtest(start_date: str, end_date: str, strategy_ids: Optional[Iterable[str]] = None) -> pd.DataFrame:
     trade_dates = list_trade_dates(start_date, end_date)
+    logger.info("[run_backtest] 交易日数=%d (%s ~ %s)", len(trade_dates),
+                trade_dates[0] if trade_dates else "N/A",
+                trade_dates[-1] if trade_dates else "N/A")
     if not trade_dates:
+        logger.warning("[run_backtest] 无交易日，退出")
         return pd.DataFrame()
 
     # 批量加载：一次加载全区间价格面板，内存中按交易日切片
     factor_history_df = _bulk_load_factor_history(start_date, end_date, lookback_days=320)
     if factor_history_df is None or factor_history_df.empty:
+        logger.warning("[run_backtest] 因子历史为空，退出")
         return pd.DataFrame()
+    logger.info("[run_backtest] 因子历史 rows=%d", len(factor_history_df))
 
     signals = build_signals_from_factor_history(factor_history_df, strategy_ids=strategy_ids)
+    logger.info("[run_backtest] 策略信号数=%d  策略=%s", len(signals), strategy_ids)
 
     price_cols = ["ts_code", "trade_date", "close_adj"]
     if "low_adj" in factor_history_df.columns:

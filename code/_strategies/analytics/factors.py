@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
@@ -146,9 +147,14 @@ def _load_chip_panel(start_date: str, end_date: str) -> pd.DataFrame:
 
     # cost_band_90: 90%筹码集中度 = (cost_85pct - cost_15pct) / cost_50pct
     if not df.empty and "cost_85pct" in df.columns and "cost_15pct" in df.columns:
-        df["cost_band_90"] = (df["cost_85pct"] - df["cost_15pct"]) / df["chip_peak_price"]
+        peak = pd.to_numeric(df["chip_peak_price"], errors="coerce")
+        df["cost_band_90"] = np.where(
+            peak.fillna(0) > 0,
+            (pd.to_numeric(df["cost_85pct"], errors="coerce") - pd.to_numeric(df["cost_15pct"], errors="coerce")) / peak,
+            np.nan,
+        )
     else:
-        df["cost_band_90"] = pd.NA
+        df["cost_band_90"] = np.nan
 
     return df
 
