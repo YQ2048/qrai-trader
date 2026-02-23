@@ -176,6 +176,72 @@ def _load_moneyflow(trade_date: str) -> pd.DataFrame:
     return df
 
 
+def _load_daily_basic_bulk(start_date: str, end_date: str) -> pd.DataFrame:
+    """批量加载指定日期区间内所有日期的 daily_basic（SHOW COLUMNS 仅执行一次）。"""
+    engine = get_engine("db1")
+    with engine.connect() as conn:
+        cols = conn.execute(text("SHOW COLUMNS FROM daily_basic")).fetchall()
+        col_names = {str(r[0]).lower() for r in cols}
+
+    optional_cols = []
+    if "ps_ttm" in col_names:
+        optional_cols.append("ps_ttm")
+    if "peg" in col_names:
+        optional_cols.append("peg")
+
+    select_cols = ["ts_code", "trade_date", "turnover_rate", "pe_ttm", "circ_mv", *optional_cols]
+    sql = text(
+        f"""
+        SELECT {', '.join(select_cols)}
+        FROM daily_basic
+        WHERE trade_date BETWEEN :start_date AND :end_date
+        """
+    )
+    with engine.connect() as conn:
+        df = pd.read_sql(sql, conn, params={"start_date": start_date, "end_date": end_date})
+
+    if "ps_ttm" not in df.columns:
+        df["ps_ttm"] = pd.NA
+    if "peg" not in df.columns:
+        df["peg"] = pd.NA
+    return df
+
+
+def _load_moneyflow_bulk(start_date: str, end_date: str) -> pd.DataFrame:
+    """批量加载指定日期区间内所有日期的资金流向数据。"""
+    engine2 = get_engine("db2")
+    sql = text(
+        """
+        SELECT ts_code, trade_date, net_mf_amount
+        FROM moneyflow
+        WHERE trade_date BETWEEN :start_date AND :end_date
+        """
+    )
+    with engine2.connect() as conn:
+        df = pd.read_sql(sql, conn, params={"start_date": start_date, "end_date": end_date})
+    return df
+
+
+def _load_top_inst_agg_bulk(start_date: str, end_date: str) -> pd.DataFrame:
+    """批量加载指定日期区间内所有日期的龙虎榜机构席位聚合数据。"""
+    engine3 = get_engine("db3")
+    sql = text(
+        """
+        SELECT
+            ts_code,
+            trade_date,
+            COUNT(*) AS inst_count,
+            SUM(COALESCE(net_buy, 0)) AS inst_net_buy
+        FROM top_inst
+        WHERE trade_date BETWEEN :start_date AND :end_date
+        GROUP BY ts_code, trade_date
+        """
+    )
+    with engine3.connect() as conn:
+        df = pd.read_sql(sql, conn, params={"start_date": start_date, "end_date": end_date})
+    return df
+
+
 def _load_stock_basic() -> pd.DataFrame:
     engine = get_engine("db1")
     sql = text("SELECT ts_code, name, industry, list_date, delist_date FROM stock_basic")
