@@ -1,0 +1,10 @@
+tushare
+pandas
+numpy
+pymysql
+sqlalchemy
+cryptography
+certifi
+python-dotenv
+matplotlib
+requests
