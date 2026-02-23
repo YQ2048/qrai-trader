@@ -56,13 +56,13 @@ BACKFILL_END_DATE = '20260210'    # 回补截止日期
 # API 频率控制
 # ============================================================
 API_CALL_INTERVAL = 0.15  # 秒，单次 Tushare 调用最小间隔
-TOKEN_COOLDOWN_SECONDS = int(os.getenv('TOKEN_COOLDOWN_SECONDS', 60))
+TOKEN_COOLDOWN_SECONDS = int(os.getenv('TOKEN_COOLDOWN_SECONDS') or 60)
 
 # ============================================================
 # Phase 3: 筹码胜率并发参数
 # ============================================================
-CYQ_PERF_WORKERS = int(os.getenv('CYQ_PERF_WORKERS', 8))
-CYQ_PERF_BATCH = int(os.getenv('CYQ_PERF_BATCH', 30))
+CYQ_PERF_WORKERS = int(os.getenv('CYQ_PERF_WORKERS') or 8)
+CYQ_PERF_BATCH = int(os.getenv('CYQ_PERF_BATCH') or 30)
 
 # ============================================================
 # 量化阈值基准表（来自策略.md）
