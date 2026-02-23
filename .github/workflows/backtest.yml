@@ -73,7 +73,7 @@ jobs:
             STRATEGY_MATRIX="$STRATEGIES_JSON"
           else
             # 全策略跑：将所有策略合并为一个逗号分隔字符串，只起一个 Job
-            STRATEGY_MATRIX=$(python3 -c "import json,os; arr=json.loads(os.environ['STRATEGIES_JSON']); print(json.dumps([','.join(arr)]))" STRATEGIES_JSON="$STRATEGIES_JSON")
+            STRATEGY_MATRIX=$(echo "$STRATEGIES_JSON" | python3 -c "import json,sys; arr=json.loads(sys.stdin.read()); print(json.dumps([','.join(arr)]))")
           fi
 
           echo "start=${START}"                >> "$GITHUB_OUTPUT"
