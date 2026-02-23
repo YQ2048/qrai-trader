@@ -153,6 +153,19 @@ def _load_top_inst_agg_bulk(start_date: str, end_date: str) -> pd.DataFrame:
 
 
 def list_trade_dates(start_date: str, end_date: str) -> List[str]:
+    engine = get_engine("db1")
+    sql = text(
+        """
+        SELECT cal_date
+        FROM trade_cal
+        WHERE is_open = 1
+          AND cal_date BETWEEN :start_date AND :end_date
+        ORDER BY cal_date
+        """
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(sql, {"start_date": start_date, "end_date": end_date}).fetchall()
+    return [r[0] for r in rows]
 
 
 def build_signals_from_factor_history(
