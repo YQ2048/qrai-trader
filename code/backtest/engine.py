@@ -324,6 +324,7 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
         hsgt = hsgt_panel_df.copy()
         hsgt["trade_date"] = pd.to_datetime(hsgt["trade_date"], format="%Y%m%d")
         hsgt = hsgt.sort_values("trade_date").reset_index(drop=True)
+        hsgt["north_money"] = pd.to_numeric(hsgt["north_money"], errors="coerce")
         inflow_flag = (hsgt["north_money"] > 0).astype(int)
         hsgt["north_consecutive_days"] = inflow_flag * (
             inflow_flag.groupby((inflow_flag == 0).cumsum()).cumcount() + 1
