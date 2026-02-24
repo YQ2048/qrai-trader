@@ -17,6 +17,9 @@ from code.core.logger import get_logger
 
 logger = get_logger(__name__)
 
+# pandas transform() 内部执行会绕过局部 catch_warnings context，
+# 用模块级 filter 确保 nanmax/nanmin 的 All-NaN RuntimeWarning 被持久压制
+warnings.filterwarnings("ignore", message="All-NaN slice encountered", category=RuntimeWarning)
 
 DEFAULT_BACKTEST_STRATEGIES = [
     "S11", "S12", "S13",
