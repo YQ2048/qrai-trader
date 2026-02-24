@@ -466,6 +466,18 @@ def sync_all(end_date: str = None, dry_run: bool = False,
     except Exception as e:
         print(f"  ⚠ 更新失败（将使用已有数据）: {e}")
 
+    # 并行预热 3 个 DB 连接（TiDB Serverless 冷启动约 3-5 分钟，串行则最多等 15 分钟）
+    print("[预热] 唤醒 db1 / db2 / db3 连接...")
+    def _ping_db(db_key: str):
+        try:
+            with get_engine(db_key).connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception as _e:
+            print(f"  ⚠ [{db_key}] 预热失败: {_e}")
+    with ThreadPoolExecutor(max_workers=3) as _pool:
+        list(_pool.map(_ping_db, ['db1', 'db2', 'db3']))
+    print("[预热] 完成\n")
+
     # 确定目标日期
     target_date = end_date or get_latest_trade_date()
 
