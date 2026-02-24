@@ -69,11 +69,12 @@ CYQ_PERF_BATCH = int(os.getenv('CYQ_PERF_BATCH') or 30)
 # ============================================================
 QUANT_THRESHOLDS = {
     # 基础过滤
-    'circ_mv_min': 50e8,            # 流通市值下限 50亿
-    'amount_min': 2e8,              # 当日成交额 > 2亿
-    'avg_amount_20d_min': 2e8,      # 20日均成交额 > 2亿
-    'turnover_rate_min': 1.2,       # 换手率 > 1.2%
-    'turnover_amount_or_min': 4e8,  # 或成交额 > 4亿
+    # 注意单位：circ_mv 数据单位为万元，amount 数据单位为千元
+    'circ_mv_min': 50 * 1e4,            # 流通市值下限 50亿元 → 500,000 万元
+    'amount_min': 2 * 1e5,              # 当日成交额 > 2亿元 → 200,000 千元
+    'avg_amount_20d_min': 2 * 1e5,      # 20日均成交额 > 2亿元 → 200,000 千元
+    'turnover_rate_min': 1.2,           # 换手率 > 1.2%（数据已是百分比，无需转换）
+    'turnover_amount_or_min': 4 * 1e5,  # 或成交额 > 4亿元 → 400,000 千元
     # PE 过滤：
     #   pe_theme_split_enabled=False 时，所有股票统一使用 pe_ttm_max（当前默认 100）
     #   pe_theme_split_enabled=True  时，命中十五五主题用 pe_ttm_max，非主题用 pe_ttm_strict
