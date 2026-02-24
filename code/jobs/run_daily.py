@@ -19,7 +19,7 @@ def run_daily_pipeline(
     trade_date: str,
     lookback_days: int = 260,
     push_notion: bool = False,
-    notion_title_prefix: str = "QRAI 日级复盘",
+    notion_title_prefix: str = "QRAI日级复盘",
     notion_existing_policy: str = "skip",
 ):
     logger.info("[daily] ── 开始日级复盘 trade_date=%s lookback_days=%d ──", trade_date, lookback_days)
@@ -81,6 +81,8 @@ def run_daily_pipeline(
             markdown_path=paths["markdown"],
             csv_path=paths["csv"],
             market_overview=market_overview,
+            candidates=ranked,
+            top_n=QUANT_THRESHOLDS["daily_top_n"],
             title_prefix=notion_title_prefix,
             existing_page_policy=notion_existing_policy,
         )
@@ -97,7 +99,7 @@ def main():
     parser.add_argument("--skip-sync", action="store_true", help="跳过 sync_daily 检查补齐")
     parser.add_argument("--full-scan", action="store_true", help="同步时启用全量扫描")
     parser.add_argument("--push-notion", action="store_true", help="复盘完成后推送到 Notion")
-    parser.add_argument("--notion-title-prefix", type=str, default="QRAI 日级复盘", help="Notion 页面标题前缀")
+    parser.add_argument("--notion-title-prefix", type=str, default="QRAI日级复盘", help="Notion 页面标题前缀")
     parser.add_argument(
         "--notion-existing-policy",
         type=str,
