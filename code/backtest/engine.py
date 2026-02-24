@@ -1,4 +1,5 @@
 import json
+import warnings
 from datetime import datetime, timedelta
 from typing import Iterable, List, Optional
 
@@ -258,7 +259,8 @@ def attach_forward_returns(signals_df: pd.DataFrame, price_df: pd.DataFrame) -> 
         from numpy.lib.stride_tricks import sliding_window_view
         windows = sliding_window_view(padded[1:], 20)  # shape: (n, 20)
         all_nan = np.all(np.isnan(windows), axis=1)
-        with np.errstate(all="ignore"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             max_next = np.where(all_nan, np.nan, np.nanmax(windows, axis=1))
         result = np.where((arr > 0) & ~np.isnan(arr), max_next / arr - 1, np.nan)
         return pd.Series(result, index=s.index)
@@ -273,7 +275,8 @@ def attach_forward_returns(signals_df: pd.DataFrame, price_df: pd.DataFrame) -> 
         from numpy.lib.stride_tricks import sliding_window_view
         windows = sliding_window_view(padded[1:], 20)
         all_nan = np.all(np.isnan(windows), axis=1)
-        with np.errstate(all="ignore"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             min_next = np.where(all_nan, np.nan, np.nanmin(windows, axis=1))
         result = np.where((arr > 0) & ~np.isnan(arr), min_next / arr - 1, np.nan)
         return pd.Series(result, index=s.index)

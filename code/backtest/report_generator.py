@@ -30,7 +30,20 @@ def generate_strategy_comparison_plots(summary_df: pd.DataFrame, output_dir: Pat
         return []
 
     try:
+        import matplotlib
+        import matplotlib.font_manager as fm
         import matplotlib.pyplot as plt
+        # 尝试使用支持 CJK 的字体（GitHub Actions 需预装 fonts-noto-cjk）
+        _cjk_priority = ["Noto Sans CJK SC", "Noto Sans CJK", "WenQuanYi Micro Hei",
+                         "Source Han Sans CN", "SimHei", "Microsoft YaHei"]
+        _avail = {f.name for f in fm.fontManager.ttflist}
+        _chosen = next((f for f in _cjk_priority if f in _avail), None)
+        if _chosen:
+            matplotlib.rcParams["font.sans-serif"] = [_chosen, "DejaVu Sans"]
+            matplotlib.rcParams["axes.unicode_minus"] = False
+        else:
+            import warnings
+            warnings.filterwarnings("ignore", message="Glyph.*missing from font", category=UserWarning)
     except Exception as e:
         logger.warning("matplotlib 不可用，跳过图表生成: %s", e)
         return []
@@ -126,7 +139,19 @@ def generate_context_comparison_plots(
         return []
 
     try:
+        import matplotlib
+        import matplotlib.font_manager as fm
         import matplotlib.pyplot as plt
+        _cjk_priority = ["Noto Sans CJK SC", "Noto Sans CJK", "WenQuanYi Micro Hei",
+                         "Source Han Sans CN", "SimHei", "Microsoft YaHei"]
+        _avail = {f.name for f in fm.fontManager.ttflist}
+        _chosen = next((f for f in _cjk_priority if f in _avail), None)
+        if _chosen:
+            matplotlib.rcParams["font.sans-serif"] = [_chosen, "DejaVu Sans"]
+            matplotlib.rcParams["axes.unicode_minus"] = False
+        else:
+            import warnings
+            warnings.filterwarnings("ignore", message="Glyph.*missing from font", category=UserWarning)
     except Exception as e:
         logger.warning("matplotlib 不可用，跳过上下文图表生成: %s", e)
         return []

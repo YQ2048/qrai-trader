@@ -138,6 +138,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install CJK fonts
+        run: sudo apt-get install -y -qq fonts-noto-cjk
+
       - name: Run backtest
         run: |
           NO_PERSIST=""
