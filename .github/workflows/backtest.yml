@@ -111,6 +111,9 @@ jobs:
       CYQ_PERF_WORKERS: ${{ secrets.CYQ_PERF_WORKERS }}
       CYQ_PERF_BATCH: ${{ secrets.CYQ_PERF_BATCH }}
 
+      # 强制 Python stdout 无缓冲，确保 print() 实时出现在 Actions 日志
+      PYTHONUNBUFFERED: "1"
+
     steps:
       # 1. 配置 SSH Agent，注入私钥以访问私有策略仓库
       - name: Setup SSH for private strategies
