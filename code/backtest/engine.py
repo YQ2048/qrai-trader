@@ -515,19 +515,22 @@ def _bulk_load_factor_history(start_date: str, end_date: str, lookback_days: int
         latest_df["trade_date"] = latest_df["trade_date"].dt.strftime("%Y%m%d")
 
         # daily_basic / moneyflow / top_inst：O(1) dict lookup，不再全表布尔扫描
-        daily_basic_df = daily_basic_by_date.get(td_str, _empty)
-        moneyflow_df   = moneyflow_by_date.get(td_str, _empty)
-        top_inst_df    = top_inst_by_date.get(td_str, _empty)
+        # 使用 None-guard 模式：dict.get() 返回 None 表示该日期无数据，跳过 merge 避免空列 DataFrame 引发 KeyError
+        daily_basic_df = daily_basic_by_date.get(td_str)
+        moneyflow_df   = moneyflow_by_date.get(td_str)
+        top_inst_df    = top_inst_by_date.get(td_str)
 
-        out = latest_df.merge(daily_basic_df, on=["ts_code", "trade_date"], how="left")
+        out = latest_df.merge(daily_basic_df, on=["ts_code", "trade_date"], how="left") if daily_basic_df is not None else latest_df
 
         # 筹码
         chip_day = chip_by_date.get(td_str)
         if chip_day is not None:
             out = out.merge(chip_day, on=["ts_code", "trade_date"], how="left")
 
-        out = out.merge(moneyflow_df, on=["ts_code", "trade_date"], how="left")
-        out = out.merge(top_inst_df, on=["ts_code", "trade_date"], how="left")
+        if moneyflow_df is not None:
+            out = out.merge(moneyflow_df, on=["ts_code", "trade_date"], how="left")
+        if top_inst_df is not None:
+            out = out.merge(top_inst_df, on=["ts_code", "trade_date"], how="left")
         out = out.merge(stock_basic_df, on="ts_code", how="left")
 
         # 行业RPS slope
