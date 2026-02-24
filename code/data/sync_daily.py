@@ -140,14 +140,17 @@ def get_trade_dates_between(start_date: str, end_date: str) -> list:
 
 
 def get_missing_dates(db_key: str, table_name: str, all_dates: list) -> list:
-    """找出某张表中缺失的交易日"""
+    """找出某张表中缺失的交易日（仅在 all_dates 窗口范围内扫描，避免全表扫描）"""
+    if not all_dates:
+        return []
     _validate_table_name(table_name)
     engine = get_engine(db_key)
     try:
         with engine.connect() as conn:
             result = conn.execute(text(
-                f"SELECT DISTINCT trade_date FROM `{table_name}`"
-            ))
+                f"SELECT DISTINCT trade_date FROM `{table_name}` "
+                f"WHERE trade_date >= :start_date AND trade_date <= :end_date"
+            ), {"start_date": all_dates[0], "end_date": all_dates[-1]})
             existing = {row[0] for row in result}
         return [d for d in all_dates if d not in existing]
     except Exception as e:
