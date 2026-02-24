@@ -9,6 +9,15 @@ from code.core.logger import get_logger
 from code.strategy.risk_rules import check_earnings_meltdown, tag_basic_risks
 from code.strategy.signals import DailyCandidate, StrategySignal
 
+
+def _fval(v, default: float = 0.0) -> float:
+    """安全转换为 float，兼容 None / np.nan / pd.NA，避免 bool(pd.NA) 歧义。"""
+    try:
+        f = float(v)
+        return default if np.isnan(f) else f
+    except (TypeError, ValueError):
+        return default
+
 logger = get_logger(__name__)
 
 
@@ -617,39 +626,39 @@ def detect_daily_candidates(factor_df: pd.DataFrame) -> List[DailyCandidate]:
                 intraday_raw=0.0,
                 factor_snapshot={
                     "policy_theme_hit": float(_infer_policy_theme_hit(row)),
-                    "policy_catalyst_active": float(row.get("policy_catalyst_active") or 0),
+                    "policy_catalyst_active": _fval(row.get("policy_catalyst_active")),
                     "calendar_bias": _infer_calendar_bias_from_row(row),
                     "forecast_type": str(row.get("forecast_type") or ""),
-                    "earnings_negative_flag": float(row.get("earnings_negative_flag") or 0),
-                    "earnings_preincrease_flag": float(row.get("earnings_preincrease_flag") or 0),
-                    "g_point_strength": float(row.get("g_point_strength") or 0),
-                    "close_to_ma250": float(row.get("close_to_ma250") or 0),
-                    "l_shape_shrink_ratio": float(row.get("l_shape_shrink_ratio") or 0),
-                    "amplitude_5d": float(row.get("amplitude_5d") or 0),
-                    "ma_dispersion": float(row.get("ma_dispersion") or 0),
-                    "cross3_trend_strength": float(row.get("cross3_trend_strength") or 0),
-                    "guide_shadow_pct": float(row.get("guide_shadow_pct") or 0),
-                    "guide_body_pct": float(row.get("guide_body_pct") or 0),
-                    "reversal_flag": float(row.get("reversal_flag") or 0),
-                    "false_break_depth": float(row.get("false_break_depth") or 0),
-                    "lower_shadow_pct": float(row.get("lower_shadow_pct") or 0),
-                    "golden_buy_price": float(row.get("golden_buy_price") or 0),
-                    "distance_to_618": float(row.get("distance_to_618") or 0),
-                    "atr_14": float(row.get("atr_14") or 0),
-                    "atr_14_trend_5": float(row.get("atr_14_trend_5") or 0),
-                    "ps_ttm": float(row.get("ps_ttm") or 0),
-                    "peg": float(row.get("peg") or 0),
-                    "rps_20": float(row.get("rps_20") or 0),
-                    "rps_60": float(row.get("rps_60") or 0),
-                    "winner_rate": float(row.get("winner_rate") or 0),
-                    "chip_peak_cv_10": float(row.get("chip_peak_cv_10") or 0),
-                    "inst_count": float(row.get("inst_count") or 0),
-                    "inst_net_buy": float(row.get("inst_net_buy") or 0),
-                    "north_consecutive_days": float(row.get("north_consecutive_days") or 0),
-                    "north_sum_3d": float(row.get("north_sum_3d") or 0),
-                    "industry_rps_slope_3d": float(row.get("industry_rps_slope_3d") or 0),
-                    "turnover_rate": float(row.get("turnover_rate") or 0),
-                    "pe_ttm": float(row.get("pe_ttm") or 0),
+                    "earnings_negative_flag": _fval(row.get("earnings_negative_flag")),
+                    "earnings_preincrease_flag": _fval(row.get("earnings_preincrease_flag")),
+                    "g_point_strength": _fval(row.get("g_point_strength")),
+                    "close_to_ma250": _fval(row.get("close_to_ma250")),
+                    "l_shape_shrink_ratio": _fval(row.get("l_shape_shrink_ratio")),
+                    "amplitude_5d": _fval(row.get("amplitude_5d")),
+                    "ma_dispersion": _fval(row.get("ma_dispersion")),
+                    "cross3_trend_strength": _fval(row.get("cross3_trend_strength")),
+                    "guide_shadow_pct": _fval(row.get("guide_shadow_pct")),
+                    "guide_body_pct": _fval(row.get("guide_body_pct")),
+                    "reversal_flag": _fval(row.get("reversal_flag")),
+                    "false_break_depth": _fval(row.get("false_break_depth")),
+                    "lower_shadow_pct": _fval(row.get("lower_shadow_pct")),
+                    "golden_buy_price": _fval(row.get("golden_buy_price")),
+                    "distance_to_618": _fval(row.get("distance_to_618")),
+                    "atr_14": _fval(row.get("atr_14")),
+                    "atr_14_trend_5": _fval(row.get("atr_14_trend_5")),
+                    "ps_ttm": _fval(row.get("ps_ttm")),
+                    "peg": _fval(row.get("peg")),
+                    "rps_20": _fval(row.get("rps_20")),
+                    "rps_60": _fval(row.get("rps_60")),
+                    "winner_rate": _fval(row.get("winner_rate")),
+                    "chip_peak_cv_10": _fval(row.get("chip_peak_cv_10")),
+                    "inst_count": _fval(row.get("inst_count")),
+                    "inst_net_buy": _fval(row.get("inst_net_buy")),
+                    "north_consecutive_days": _fval(row.get("north_consecutive_days")),
+                    "north_sum_3d": _fval(row.get("north_sum_3d")),
+                    "industry_rps_slope_3d": _fval(row.get("industry_rps_slope_3d")),
+                    "turnover_rate": _fval(row.get("turnover_rate")),
+                    "pe_ttm": _fval(row.get("pe_ttm")),
                 },
                 signals=signals,
                 risk_tags=risk_tags,

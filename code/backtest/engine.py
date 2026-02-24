@@ -111,9 +111,9 @@ def _load_daily_basic_bulk(start_date: str, end_date: str) -> pd.DataFrame:
         df = pd.read_sql(sql, conn, params={"start_date": start_date, "end_date": end_date})
 
     if "ps_ttm" not in df.columns:
-        df["ps_ttm"] = pd.NA
+        df["ps_ttm"] = np.nan
     if "peg" not in df.columns:
-        df["peg"] = pd.NA
+        df["peg"] = np.nan
     return df
 
 
