@@ -27,7 +27,7 @@ QRAI-Trader 近期数据补齐脚本 (sync_daily.py)
 """
 import time
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import text
@@ -49,7 +49,7 @@ from code.data.fetchers import (
     fetch_block_trade_by_date,
     fetch_cyq_perf_by_stock,
 )
-from code.core.config import API_CALL_INTERVAL, BACKFILL_START_DATE
+from code.core.config import API_CALL_INTERVAL, BACKFILL_START_DATE, CYQ_PERF_WORKERS
 
 logger = get_logger(__name__)
 
@@ -355,6 +355,15 @@ def sync_supplementary(all_trade_dates: list, target_date: str):
     # --- 筹码胜率（cyq_perf，按股票+区间拉取）---
     cyq_missing = get_missing_dates('db2', 'cyq_perf', all_trade_dates)
     if cyq_missing:
+        # 筹码数据约北京时间 20:00 后才发布；若今天尚未到 20:00，跳过今天的日期
+        _beijing_now = datetime.now(timezone(timedelta(hours=8)))
+        _today_str = _beijing_now.strftime('%Y%m%d')
+        if _beijing_now.hour < 20:
+            _before = len(cyq_missing)
+            cyq_missing = [d for d in cyq_missing if str(d).replace('-', '')[:8] != _today_str]
+            if len(cyq_missing) < _before:
+                print(f"  [筹码胜率] ⏭ 跳过 {_today_str}（北京时间 {_beijing_now.strftime('%H:%M')}，筹码数据 20:00 后发布）")
+    if cyq_missing:
         print(f"  [筹码胜率] 缺失 {len(cyq_missing)} 天，补齐中...")
         start_date = cyq_missing[0]
         end_date = cyq_missing[-1]
@@ -380,7 +389,7 @@ def sync_supplementary(all_trade_dates: list, target_date: str):
                 retry_wait=max(API_CALL_INTERVAL, 0.2),
             )
 
-        workers = 8
+        workers = CYQ_PERF_WORKERS
         with ThreadPoolExecutor(max_workers=min(workers, total)) as pool:
             future_map = {pool.submit(_fetch_cyq, ts_code): ts_code for ts_code in stock_list}
             done = 0
@@ -550,14 +559,23 @@ def ensure_data_ready(end_date: str = None, full_scan: bool = False,
     latest, missing = sync_all(end_date=end_date, full_scan=full_scan,
                                lookback_days=lookback_days)
 
+    # 以 stock_daily 实际有数据的最新日期为准（防止交易日历超前于盘后数据）
+    actual_latest = get_latest_date_in_db('db1', 'stock_daily')
+    if actual_latest:
+        actual_latest = str(actual_latest).replace('-', '')[:8]
+    else:
+        actual_latest = str(latest).replace('-', '')[:8] if latest else None
+
     if missing == 0:
-        print(f"\n✓ 数据就绪，可执行策略 (最新交易日: {latest})")
+        print(f"\n✓ 数据就绪，可执行策略 (最新交易日: {actual_latest})")
     elif missing > 0:
         print(f"\n⚠ 仍有 {missing} 张表数据滞后，建议检查网络/API 限制")
+        if actual_latest and actual_latest != str(latest).replace('-', '')[:8]:
+            print(f"  → 将使用最近有数据日期: {actual_latest}（交易日历最新: {latest}）")
     else:
         print(f"\n✗ 核心数据缺失，请先运行完整数据回补")
 
-    return latest
+    return actual_latest
 
 
 if __name__ == '__main__':
