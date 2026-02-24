@@ -34,18 +34,28 @@ def generate_strategy_comparison_plots(summary_df: pd.DataFrame, output_dir: Pat
         import matplotlib.font_manager as fm
         import matplotlib.pyplot as plt
         # 尝试使用支持 CJK 的字体（GitHub Actions 需预装 fonts-noto-cjk）
+        # 优先精确匹配，其次模糊匹配包含 Noto+CJK 或 SimHei 等关键词的字体
         _cjk_priority = ["Noto Sans CJK SC", "Noto Sans CJK", "WenQuanYi Micro Hei",
                          "Source Han Sans CN", "SimHei", "Microsoft YaHei"]
         _avail = {f.name for f in fm.fontManager.ttflist}
         _chosen = next((f for f in _cjk_priority if f in _avail), None)
+        if _chosen is None:
+            # 模糊匹配：搜索字体名中含 CJK/Noto/Hei 的字体
+            _chosen = next(
+                (f.name for f in fm.fontManager.ttflist
+                 if any(kw in f.name for kw in ("CJK", "Noto Sans SC", "SimHei", "WenQuanYi", "Source Han"))),
+                None,
+            )
         if _chosen:
             matplotlib.rcParams["font.sans-serif"] = [_chosen, "DejaVu Sans"]
             matplotlib.rcParams["axes.unicode_minus"] = False
+            logger.info("[report] matplotlib CJK font: %s", _chosen)
         else:
             import warnings
             warnings.filterwarnings("ignore", message="Glyph.*missing from font", category=UserWarning)
+            logger.warning("[report] 未找到 CJK 字体，图表中文将显示为方框")
     except Exception as e:
-        logger.warning("matplotlib 不可用，跳过图表生成: %s", e)
+        logger.warning("matplotlib 不可用，跳过策略对比图表生成: %s", e)
         return []
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -146,12 +156,20 @@ def generate_context_comparison_plots(
                          "Source Han Sans CN", "SimHei", "Microsoft YaHei"]
         _avail = {f.name for f in fm.fontManager.ttflist}
         _chosen = next((f for f in _cjk_priority if f in _avail), None)
+        if _chosen is None:
+            _chosen = next(
+                (f.name for f in fm.fontManager.ttflist
+                 if any(kw in f.name for kw in ("CJK", "Noto Sans SC", "SimHei", "WenQuanYi", "Source Han"))),
+                None,
+            )
         if _chosen:
             matplotlib.rcParams["font.sans-serif"] = [_chosen, "DejaVu Sans"]
             matplotlib.rcParams["axes.unicode_minus"] = False
+            logger.info("[report] matplotlib CJK font (context): %s", _chosen)
         else:
             import warnings
             warnings.filterwarnings("ignore", message="Glyph.*missing from font", category=UserWarning)
+            logger.warning("[report] 未找到 CJK 字体，上下文图表中文将显示为方框")
     except Exception as e:
         logger.warning("matplotlib 不可用，跳过上下文图表生成: %s", e)
         return []
