@@ -1,0 +1,98 @@
+name: sync_cyq
+
+on:
+  schedule:
+    # 每日 UTC 14:00 = 北京时间 22:00（daily_review UTC 12:00 之后 2 小时）
+    # 周一至周五，作为"闲暇任务"独立运行，不阻塞主流程
+    - cron: "0 14 * * 1-5"
+
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "目标交易日 (YYYYMMDD)，留空自动检测缺失日期"
+        required: false
+        default: ""
+      lookback_days:
+        description: "向前扫描天数，用于检测缺失（默认 7）"
+        required: false
+        default: "7"
+      all_stocks:
+        description: "全量股票，含 ST（true/false，默认 false 排除 ST）"
+        required: false
+        default: "false"
+      dry_run:
+        description: "仅估算不拉取（true/false）"
+        required: false
+        default: "false"
+
+jobs:
+  sync-cyq:
+    runs-on: ubuntu-latest
+    # 单 Token ~32 分钟，双 Token ~16 分钟；设 60 分钟留足余量
+    timeout-minutes: 60
+
+    env:
+      TUSHARE_TOKENS: ${{ secrets.TUSHARE_TOKENS }}
+
+      DB1_URL: ${{ secrets.DB1_URL }}
+      DB2_URL: ${{ secrets.DB2_URL }}
+      DB3_URL: ${{ secrets.DB3_URL }}
+
+      # API 频率控制
+      TOKEN_COOLDOWN_SECONDS: ${{ secrets.TOKEN_COOLDOWN_SECONDS }}
+
+      # 强制 Python stdout 无缓冲，确保 print() 实时出现在 Actions 日志
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      # 1. 配置 SSH Agent，注入私钥以访问私有策略仓库
+      - name: Setup SSH for private strategies
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+
+      # 2. Checkout 公开仓库
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 3. Clone 私有策略仓库到 code/_strategies（软链接目标）
+      - name: Clone private strategies
+        run: |
+          rm -rf code/_strategies
+          git clone git@github.com:${{ secrets.STRATEGIES_REPO }} code/_strategies
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run cyq_perf sync
+        run: |
+          ARGS=""
+
+          DATE_INPUT="${{ github.event.inputs.date }}"
+          if [ -n "$DATE_INPUT" ]; then
+            ARGS="$ARGS --date $DATE_INPUT"
+          fi
+
+          LOOKBACK="${{ github.event.inputs.lookback_days }}"
+          if [ -n "$LOOKBACK" ] && [ "$LOOKBACK" != "7" ]; then
+            ARGS="$ARGS --lookback-days $LOOKBACK"
+          fi
+
+          ALL_STOCKS="${{ github.event.inputs.all_stocks }}"
+          if [ "$ALL_STOCKS" = "true" ]; then
+            ARGS="$ARGS --all-stocks"
+          fi
+
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          python -m code.jobs.run_sync_cyq $ARGS

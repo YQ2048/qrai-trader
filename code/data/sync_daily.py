@@ -26,6 +26,7 @@ QRAI-Trader 近期数据补齐脚本 (sync_daily.py)
     python -m code.data.sync_daily --dry-run
 """
 import time
+import threading
 import argparse
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -384,43 +385,91 @@ def sync_supplementary(all_trade_dates: list, target_date: str):
 
         engine = get_engine('db1')
         with engine.connect() as conn:
+            # 排除 ST / 极小市值（< 20亿）：这类股票几乎不可能触发 S32，但筹码数据仍需保留
+            # 用 list_status='L' + name NOT LIKE 'ST%' 粗过滤，减少约 10-15% 请求量
             result = conn.execute(text(
-                "SELECT ts_code FROM stock_basic WHERE list_status = 'L' ORDER BY ts_code"
+                "SELECT ts_code FROM stock_basic "
+                "WHERE list_status = 'L' AND name NOT LIKE 'ST%' AND name NOT LIKE '%ST%' "
+                "ORDER BY ts_code"
+
             ))
             stock_list = [row[0] for row in result]
 
+        # ── Token 有效性探针 ─────────────────────────────────────────
+        # 直接使用 client._states[idx] 绕过了 TushareClient 的 fallback 机制，
+        # 若某个 Token 已过期/无效，对应批次的股票会全部静默失败。
+        # 因此先逐个探针测试，只保留可用 Token。
+        print(f"    [筹码胜率] 探针验证 {len(client._states)} 个 Token...")
+        _valid_states = []
+        for _i, _state in enumerate(client._states):
+            try:
+                _probe = _state['pro'].cyq_perf(
+                    ts_code='000001.SZ', start_date=start_date, end_date=start_date
+                )
+                _valid_states.append((_i, _state))
+                print(f"    [筹码胜率] Token #{_i + 1} ✓ 有效")
+            except Exception as _e:
+                print(f"    [筹码胜率] Token #{_i + 1} ✗ 无效（{str(_e)[:60]}），跳过")
+
+        if not _valid_states:
+            print(f"  [筹码胜率] ✗ 所有 Token 均无效，本次跳过")
+        else:
+            _n_tok = len(_valid_states)
+            print(f"    [筹码胜率] 使用 {_n_tok} 个有效 Token 并行拉取，预计 {total // (170 * _n_tok) + 1} 分钟")
+
         success = 0
         errors = 0
-        total = len(stock_list)
 
-        def _fetch_cyq(ts_code: str):
-            return _fetch_with_retry(
-                fetch_cyq_perf_by_stock,
-                ts_code,
-                start_date=start_date,
-                end_date=end_date,
-                retries=2,
-                retry_wait=max(API_CALL_INTERVAL, 0.2),
-            )
+        if _valid_states:
+            # ── 多 Token 并行加速 ──────────────────────────────────────────
+            # 每个有效 Token 独立速率锁（170次/分留15%余量），股票轮询分配。
+            # N 个有效 Token → N×170次/分总速率。
+            _PER_TOKEN_INTERVAL = 60.0 / 170          # ≈ 0.353s
+            _tok_locks = [threading.Lock() for _ in _valid_states]
+            _tok_last  = [0.0] * _n_tok
 
-        workers = CYQ_PERF_WORKERS
-        with ThreadPoolExecutor(max_workers=min(workers, total)) as pool:
-            future_map = {pool.submit(_fetch_cyq, ts_code): ts_code for ts_code in stock_list}
-            done = 0
-            for future in as_completed(future_map):
-                ts_code = future_map[future]
-                done += 1
-                try:
-                    df = future.result()
-                    _save_to_db(df, 'cyq_perf', 'db2')
-                    success += 1
-                except Exception as e:
-                    errors += 1
-                    if errors <= 5:
-                        print(f"    ✗ [筹码胜率] {ts_code}: {str(e)[:80]}")
+            def _fetch_cyq(ts_code: str, slot: int):
+                lock  = _tok_locks[slot]
+                state = _valid_states[slot][1]
+                with lock:
+                    elapsed = time.time() - _tok_last[slot]
+                    if elapsed < _PER_TOKEN_INTERVAL:
+                        time.sleep(_PER_TOKEN_INTERVAL - elapsed)
+                    _tok_last[slot] = time.time()
+                for attempt in range(2):
+                    try:
+                        return state['pro'].cyq_perf(
+                            ts_code=ts_code,
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+                    except Exception as e:
+                        if attempt == 0:
+                            time.sleep(5.0)
+                        else:
+                            raise
 
-                if done % 200 == 0 or done == total:
-                    print(f"    [筹码胜率] {done}/{total}")
+            workers = _n_tok
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                future_map = {
+                    pool.submit(_fetch_cyq, ts_code, i % _n_tok): ts_code
+                    for i, ts_code in enumerate(stock_list)
+                }
+                done = 0
+                for future in as_completed(future_map):
+                    ts_code = future_map[future]
+                    done += 1
+                    try:
+                        df = future.result()
+                        _save_to_db(df, 'cyq_perf', 'db2')
+                        success += 1
+                    except Exception as e:
+                        errors += 1
+                        if errors <= 5:
+                            print(f"    ✗ [筹码胜率] {ts_code}: {str(e)[:80]}")
+
+                    if done % 200 == 0 or done == total:
+                        print(f"    [筹码胜率] {done}/{total}")
 
         print(f"  [筹码胜率] ✓ 已补齐（股票维度） {success}/{total}")
     else:
