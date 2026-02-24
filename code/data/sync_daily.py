@@ -355,14 +355,25 @@ def sync_supplementary(all_trade_dates: list, target_date: str):
     # --- 筹码胜率（cyq_perf，按股票+区间拉取）---
     cyq_missing = get_missing_dates('db2', 'cyq_perf', all_trade_dates)
     if cyq_missing:
-        # 筹码数据约北京时间 20:00 后才发布；若今天尚未到 20:00，跳过今天的日期
         _beijing_now = datetime.now(timezone(timedelta(hours=8)))
         _today_str = _beijing_now.strftime('%Y%m%d')
-        if _beijing_now.hour < 20:
-            _before = len(cyq_missing)
-            cyq_missing = [d for d in cyq_missing if str(d).replace('-', '')[:8] != _today_str]
-            if len(cyq_missing) < _before:
-                print(f"  [筹码胜率] ⏭ 跳过 {_today_str}（北京时间 {_beijing_now.strftime('%H:%M')}，筹码数据 20:00 后发布）")
+        # 如果今天在缺失列表中，先试探一只活跃股确认数据是否已发布
+        _has_today = any(str(d).replace('-', '')[:8] == _today_str for d in cyq_missing)
+        if _has_today:
+            _probe_ok = False
+            try:
+                _probe_df = fetch_cyq_perf_by_stock(
+                    '000001.SZ', start_date=_today_str, end_date=_today_str
+                )
+                _probe_ok = _probe_df is not None and not _probe_df.empty
+            except Exception:
+                pass
+            if not _probe_ok and _beijing_now.hour < 20:
+                cyq_missing = [d for d in cyq_missing if str(d).replace('-', '')[:8] != _today_str]
+                print(
+                    f"  [筹码胜率] ⏭ 跳过 {_today_str}"
+                    f"（000001.SZ 试探无数据 + 北京时间 {_beijing_now.strftime('%H:%M')} < 20:00）"
+                )
     if cyq_missing:
         print(f"  [筹码胜率] 缺失 {len(cyq_missing)} 天，补齐中...")
         start_date = cyq_missing[0]
