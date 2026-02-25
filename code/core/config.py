@@ -85,8 +85,8 @@ QUANT_THRESHOLDS = {
     'pe_theme_split_enabled': False,  # False=全体用宽松限制；True=主题宽松/非主题严格
 
     # 每日复盘推送数量（DB落库 + Markdown报告 + Notion推送共用此值）
-    # 可通过环境变量 DAILY_TOP_N 覆盖，未设置时默认 50
-    'daily_top_n': int(os.getenv('DAILY_TOP_N') or 50),
+    # 可通过环境变量 DAILY_TOP_N 覆盖，未设置时默认 100
+    'daily_top_n': int(os.getenv('DAILY_TOP_N') or 100),
 
     # 动量 / RPS
     'rps_20_min': 90,               # 20日RPS > 90
