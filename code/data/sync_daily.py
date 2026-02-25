@@ -415,6 +415,7 @@ def sync_supplementary(all_trade_dates: list, target_date: str):
             print(f"  [筹码胜率] ✗ 所有 Token 均无效，本次跳过")
         else:
             _n_tok = len(_valid_states)
+            total = len(stock_list)
             print(f"    [筹码胜率] 使用 {_n_tok} 个有效 Token 并行拉取，预计 {total // (170 * _n_tok) + 1} 分钟")
 
         success = 0
